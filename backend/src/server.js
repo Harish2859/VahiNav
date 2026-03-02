@@ -23,6 +23,7 @@ require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
+const rateLimit = require('express-rate-limit');
 
 const { pool, testConnection } = require('./config/database');
 const { initializeFirebase } = require('./config/firebase');
@@ -65,6 +66,36 @@ app.use(
 /** Parse JSON request bodies */
 app.use(express.json({ limit: '1mb' }));
 
+// ---------------------------------------------------------------------------
+// Rate limiters
+// ---------------------------------------------------------------------------
+
+/**
+ * General API rate limiter — 300 requests per minute per IP.
+ * Applied to all /api/v1 routes.
+ */
+const apiLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { status: 'error', message: 'Too many requests — please try again later' },
+});
+
+/**
+ * Stricter limiter for the breadcrumb sync endpoint — 100 requests per minute
+ * per IP (as specified in the security requirements).
+ */
+const syncLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { status: 'error', message: 'Sync rate limit exceeded — please slow down' },
+});
+
+app.use('/api/v1', apiLimiter);
+
 /** Log every incoming request */
 app.use((req, _res, next) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
@@ -90,7 +121,7 @@ app.get('/health', (_req, res) => {
  * Flutter background service sends batches of GPS breadcrumbs here.
  * Protected by JWT middleware.
  */
-app.post('/api/v1/trips/sync', authenticate, async (req, res, next) => {
+app.post('/api/v1/trips/sync', syncLimiter, authenticate, async (req, res, next) => {
   try {
     await syncBreadcrumbs(req, res, pool, adminApp);
   } catch (err) {
