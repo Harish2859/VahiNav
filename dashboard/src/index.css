@@ -1,0 +1,96 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --map-height: calc(100vh - 64px);
+  }
+
+  body {
+    @apply font-sans bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-gray-100;
+  }
+
+  * {
+    @apply box-border;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply px-4 py-2 bg-gov-secondary text-white rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-secondary {
+    @apply px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors font-medium dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600;
+  }
+
+  .card {
+    @apply bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4;
+  }
+
+  .mode-badge {
+    @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium text-white;
+  }
+}
+
+/* Leaflet map container */
+.leaflet-container {
+  height: var(--map-height);
+  width: 100%;
+  z-index: 0;
+}
+
+/* Ensure map popups appear above other elements */
+.leaflet-popup-content-wrapper {
+  @apply rounded-lg shadow-lg;
+}
+
+.leaflet-popup-content {
+  @apply text-sm;
+}
+
+/* Chart container */
+.chart-container {
+  @apply relative w-full;
+  height: 350px;
+}
+
+/* Timeline for trip chains */
+.timeline-item {
+  @apply relative pl-8 pb-6;
+}
+
+.timeline-item::before {
+  content: '';
+  @apply absolute left-2.5 top-6 bottom-0 w-0.5 bg-gray-200 dark:bg-gray-600;
+}
+
+.timeline-item:last-child::before {
+  display: none;
+}
+
+.timeline-dot {
+  @apply absolute left-0 top-1 w-5 h-5 rounded-full border-2 border-white dark:border-gray-800 shadow;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-gray-100 dark:bg-gray-800;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-gray-300 dark:bg-gray-600 rounded-full;
+}
+
+/* Responsive map height on mobile */
+@media (max-width: 768px) {
+  :root {
+    --map-height: 50vh;
+  }
+}
