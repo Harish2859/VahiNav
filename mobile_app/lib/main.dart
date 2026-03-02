@@ -1,151 +1,196 @@
-import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-
-import 'background/background_service.dart';
-import 'config/app_config.dart';
-import 'models/breadcrumb.dart';
 import 'services/permission_service.dart';
-import 'ui/smart_nudge_screen.dart';
+import 'sensors/gps_tracker.dart';
 
-/// FCM background message handler. Must be a top-level function.
-@pragma('vm:entry-point')
-Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  // Background FCM messages are handled here. The SmartNudge UI is shown
-  // when the user taps the notification (handled via onMessageOpenedApp).
-}
-
-Future<void> main() async {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Load environment configuration (.env asset).
-  await dotenv.load(fileName: '.env');
-
-  // Initialise Firebase (required before any Firebase service is used).
-  await Firebase.initializeApp();
-
-  // Initialise Hive offline storage.
   await Hive.initFlutter();
-  Hive.registerAdapter(BreadcrumbAdapter());
-  await Hive.openBox<Breadcrumb>(AppConfig.hiveBoxBreadcrumbs);
 
-  // Initialise Firebase Messaging and register background handler.
-  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+  // Always initialize GPS tracker (at least the Hive box)
+  await GPSTracker.initialize();
 
-  // Start the headless background service.
-  await BackgroundServiceManager.initialize();
+  final permissionsGranted = await PermissionService.requestAllPermissions();
 
-  runApp(const PathSathiApp());
+  if (permissionsGranted) {
+    print('✅ App initialization complete');
+  } else {
+    print('⚠️ Permissions not fully granted');
+  }
+
+  runApp(const VahiNavApp());
 }
 
-/// Root widget for the PathSathi application.
-class PathSathiApp extends StatelessWidget {
-  const PathSathiApp({super.key});
+class VahiNavApp extends StatelessWidget {
+  const VahiNavApp({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'PathSathi',
+      title: 'VahiNav',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.indigo),
+        primarySwatch: Colors.blue,
         useMaterial3: true,
       ),
-      home: const _HomeScreen(),
+      home: const HomePage(),
+      debugShowCheckedModeBanner: false,
     );
   }
 }
 
-class _HomeScreen extends StatefulWidget {
-  const _HomeScreen();
+class HomePage extends StatefulWidget {
+  const HomePage({Key? key});
 
   @override
-  State<_HomeScreen> createState() => _HomeScreenState();
+  State<HomePage> createState() => _HomePageState();
 }
 
-class _HomeScreenState extends State<_HomeScreen> {
-  bool _permissionsGranted = false;
-  bool _checking = true;
+class _HomePageState extends State<HomePage> {
+  bool _isTracking = false;
+  int _breadcrumbCount = 0;
 
   @override
   void initState() {
     super.initState();
-    _initPermissions();
-    _setupFcm();
+    _updateBreadcrumbCount();
   }
 
-  Future<void> _initPermissions() async {
-    final granted = await PermissionService.requestAllPermissions();
-    if (mounted) {
-      setState(() {
-        _permissionsGranted = granted;
-        _checking = false;
-      });
+  void _updateBreadcrumbCount() {
+    setState(() {
+      _breadcrumbCount = GPSTracker.getBufferedBreadcrumbs().length;
+    });
+  }
+
+  Future<void> _toggleTracking() async {
+    try {
+      if (_isTracking) {
+        await GPSTracker.stopTracking();
+        setState(() => _isTracking = false);
+        _showSnackBar('Tracking stopped', Colors.orange);
+      } else {
+        await GPSTracker.startTracking();
+        setState(() => _isTracking = true);
+        _showSnackBar('Tracking started 🚀', Colors.green);
+      }
+      _updateBreadcrumbCount();
+    } catch (e) {
+      _showSnackBar('Error: $e', Colors.red);
     }
   }
 
-  void _setupFcm() {
-    // Handle FCM nudge when app is opened from a notification.
-    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-      final tripId = message.data['tripId'] as String?;
-      if (tripId != null && mounted) {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => SmartNudgeScreen(tripId: tripId),
-          ),
-        );
-      }
-    });
+  Future<void> _clearBreadcrumbs() async {
+    try {
+      await GPSTracker.clearBreadcrumbs();
+      _updateBreadcrumbCount();
+      _showSnackBar('Breadcrumbs cleared', Colors.blue);
+    } catch (e) {
+      _showSnackBar('Error: $e', Colors.red);
+    }
+  }
 
-    // Handle FCM nudge while app is in foreground.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) setupFcmNudgeHandler(context);
-    });
+  void _showSnackBar(String message, Color color) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: color,
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_checking) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
-    }
-
     return Scaffold(
-      appBar: AppBar(title: const Text('PathSathi')),
+      appBar: AppBar(
+        title: const Text('🛰️ VahiNav - Trip Tracker'),
+        centerTitle: true,
+        elevation: 0,
+      ),
       body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(
-                _permissionsGranted
-                    ? Icons.check_circle_outline
-                    : Icons.warning_amber_rounded,
-                size: 72,
-                color: _permissionsGranted ? Colors.green : Colors.orange,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: _isTracking ? Colors.green.shade100 : Colors.grey.shade100,
               ),
-              const SizedBox(height: 16),
-              Text(
-                _permissionsGranted
-                    ? 'PathSathi is running in the background.\n'
-                        'Your trips are being tracked automatically.'
-                    : 'Some permissions are missing.\n'
-                        'Please grant all permissions for full functionality.',
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyLarge,
+              child: Icon(
+                _isTracking ? Icons.location_on : Icons.location_off,
+                size: 80,
+                color: _isTracking ? Colors.green : Colors.grey,
               ),
-              const SizedBox(height: 24),
-              if (!_permissionsGranted)
-                ElevatedButton.icon(
-                  onPressed: _initPermissions,
-                  icon: const Icon(Icons.security),
-                  label: const Text('Grant Permissions'),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              _isTracking ? 'Tracking Active 📡' : 'Tracking Inactive',
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: _isTracking ? Colors.green : Colors.grey,
+                  ),
+            ),
+            const SizedBox(height: 30),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.blue),
+              ),
+              child: Column(
+                children: [
+                  const Text('📍 Buffered Breadcrumbs'),
+                  Text(
+                    '$_breadcrumbCount',
+                    style: const TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blue,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 40),
+            ElevatedButton.icon(
+              onPressed: _toggleTracking,
+              icon: Icon(_isTracking ? Icons.stop_circle : Icons.play_circle),
+              label: Text(_isTracking ? 'Stop Tracking' : 'Start Tracking'),
+              style: ElevatedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 15),
+                backgroundColor: _isTracking ? Colors.red : Colors.green,
+                foregroundColor: Colors.white,
+              ),
+            ),
+            const SizedBox(height: 15),
+            OutlinedButton.icon(
+              onPressed: _clearBreadcrumbs,
+              icon: const Icon(Icons.delete),
+              label: const Text('Clear Buffer'),
+            ),
+            const SizedBox(height: 40),
+            Card(
+              margin: const EdgeInsets.symmetric(horizontal: 20),
+              child: Padding(
+                padding: const EdgeInsets.all(15),
+                child: Column(
+                  children: const [
+                    Text('Backend Status', style: TextStyle(fontWeight: FontWeight.bold)),
+                    SizedBox(height: 5),
+                    // If you need a literal backslash, use '\\' or r'\'
+                    Text('🌐 http://localhost:8000', style: TextStyle(fontSize: 12)),
+                    SizedBox(height: 10),
+                    Text(
+                      'Ready to sync 🔄',
+                      style: TextStyle(fontSize: 12, color: Colors.green),
+                    ),
+                  ],
                 ),
-            ],
-          ),
+              ),
+            ),
+          ],
         ),
       ),
     );

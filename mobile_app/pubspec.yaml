@@ -1,60 +1,51 @@
-name: path_sathi
-description: AI-Powered Travel Activity & Automated Trip Chain Logger for NATPAC.
+﻿name: vahinav
+description: VahiNav - Passive Activity Tracking for NATPAC
+
+publish_to: 'none'
+
 version: 1.0.0+1
 
 environment:
-  sdk: ">=3.0.0 <4.0.0"
+  sdk: '>=3.0.0 <4.0.0'
 
 dependencies:
   flutter:
     sdk: flutter
 
-  # Background service - runs headless Dart instance even after app swipe-away
-  flutter_background_service: ^5.0.0
+  flutter_background_service: ^5.1.0
 
-  # Activity recognition - connects to Google Fit / Apple Health sensors
-  flutter_activity_recognition: ^3.0.0
+  flutter_activity_recognition: ^3.1.0
 
-  # High-accuracy GPS with distance-based filtering for battery efficiency
-  geolocator: ^10.0.0
+  geolocator: ^10.1.1
 
-  # Permission management (locationAlways, activityRecognition, notification, battery)
-  permission_handler: ^11.0.0
+  permission_handler: ^11.4.0
 
-  # Offline buffer - stores breadcrumbs when network is unavailable
   hive: ^2.2.3
   hive_flutter: ^1.1.0
 
-  # FCM push notifications for Smart Nudge surveys
-  firebase_core: ^3.0.0
-  firebase_messaging: ^15.0.0
+  firebase_core: ^3.15.2
+  firebase_messaging: ^15.2.10
 
-  # State management
-  provider: ^6.1.2
+  provider: ^6.1.5
 
-  # HTTP client for syncing with Node.js backend
   http: ^1.2.0
 
-  # Connectivity monitoring
-  connectivity_plus: ^6.0.0
+  logger: ^2.0.0
 
-  # UUID generation for trip IDs
-  uuid: ^4.4.0
+  connectivity_plus: ^6.1.5
 
-  # Environment configuration (no hardcoded URLs)
-  flutter_dotenv: ^5.1.0
+  uuid: ^4.5.3
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
 
-  # Hive code generation
+  flutter_lints: ^3.0.2
   hive_generator: ^2.0.1
-  build_runner: ^2.4.6
-
-  flutter_lints: ^3.0.0
+  build_runner: ^2.4.13
 
 flutter:
   uses-material-design: true
+
   assets:
-    - .env
+    - assets/

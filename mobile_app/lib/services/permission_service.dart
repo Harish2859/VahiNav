@@ -1,70 +1,45 @@
 import 'package:permission_handler/permission_handler.dart';
+import 'package:flutter/foundation.dart';
 
-/// Handles all runtime permission requests required by PathSathi.
-///
-/// Must be called early in the app lifecycle (e.g. from [main.dart]) so that
-/// the background service can access location and activity data without being
-/// interrupted by OS permission dialogs.
 class PermissionService {
-  PermissionService._();
-
-  /// Requests all four permissions required for passive trip tracking:
-  ///
-  /// 1. **locationAlways** – GPS access in the background (critical).
-  /// 2. **activityRecognition** – Physical activity detection via Google Fit /
-  ///    Apple Health.
-  /// 3. **notification** – Smart Nudge survey alerts (Android 13+ / iOS).
-  /// 4. **ignoreBatteryOptimizations** – Prevents the OS from killing the
-  ///    background service after ~10 minutes (Android only).
-  ///
-  /// Returns `true` only when all permissions have been granted. If any
-  /// permission is permanently denied the user is directed to Settings via
-  /// [openAppSettings].
   static Future<bool> requestAllPermissions() async {
-    // Request the three standard permissions together to minimise dialog
-    // interruptions for the user.
-    final Map<Permission, PermissionStatus> statuses = await [
-      Permission.locationAlways,
-      Permission.activityRecognition,
-      Permission.notification,
-    ].request();
+    try {
+      print('📍 Requesting permissions...');
 
-    // Battery optimisation must be requested separately on Android. On iOS
-    // this permission does not exist, so the call is a no-op.
-    final bool isBatteryOptimizationDisabled =
-        await Permission.ignoreBatteryOptimizations.isGranted;
-    if (!isBatteryOptimizationDisabled) {
-      await Permission.ignoreBatteryOptimizations.request();
-    }
+      // Skip unsupported permissions on web
+      PermissionStatus locationStatus = PermissionStatus.granted;
+      PermissionStatus activityStatus = PermissionStatus.granted;
+      
+      if (!kIsWeb) {
+        locationStatus = await Permission.locationAlways.request();
+        print('Location: $locationStatus');
 
-    // Re-read the battery optimisation status after the request.
-    final bool batteryGranted =
-        await Permission.ignoreBatteryOptimizations.isGranted;
-
-    final bool allStandardGranted =
-        statuses.values.every((s) => s.isGranted);
-
-    // Open app settings if any permission was permanently denied.
-    if (!allStandardGranted) {
-      final bool anyPermanentlyDenied =
-          statuses.values.any((s) => s.isPermanentlyDenied);
-      if (anyPermanentlyDenied) {
-        await openAppSettings();
+        activityStatus = await Permission.activityRecognition.request();
+        print('Activity: $activityStatus');
+      } else {
+        print('⚠️ Location and Activity permissions not available on web');
       }
-    }
 
-    return allStandardGranted && batteryGranted;
+      final notificationStatus = await Permission.notification.request();
+      print('Notification: $notificationStatus');
+
+      bool allGranted = locationStatus.isGranted && activityStatus.isGranted && notificationStatus.isGranted;
+
+      if (allGranted) {
+        print('✅ Permissions granted');
+      } else {
+        print('⚠️ Some permissions denied');
+      }
+
+      return allGranted;
+    } catch (e) {
+      print('❌ Error: $e');
+      return false;
+    }
   }
 
-  /// Returns whether all required permissions are currently granted without
-  /// showing any dialogs. Useful for checking status on app resume.
-  static Future<bool> allPermissionsGranted() async {
-    final List<bool> results = await Future.wait([
-      Permission.locationAlways.isGranted,
-      Permission.activityRecognition.isGranted,
-      Permission.notification.isGranted,
-      Permission.ignoreBatteryOptimizations.isGranted,
-    ]);
-    return results.every((granted) => granted);
+  static Future<bool> isLocationPermissionGranted() async {
+    final status = await Permission.locationAlways.status;
+    return status.isGranted;
   }
 }
