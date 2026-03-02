@@ -35,6 +35,8 @@ To accurately map a "Trip Chain" (e.g., Home → Work → Shop → Home), our da
 * **Breadcrumbs:** Time-stamped GPS coordinates (`GEOGRAPHY` type) captured during an active trip.
 * **SurveyData:** qualitative details captured via user nudges (Purpose, Cost, Companions).
 
+> 📄 **Database setup instructions, schema details, and geospatial notes:** see [database/DATABASE.md](database/DATABASE.md)
+
 ---
 
 ## 📂 Repository Structure
@@ -50,6 +52,8 @@ To accurately map a "Trip Chain" (e.g., Home → Work → Shop → Home), our da
 │   └── /src/services     # FCM Notification triggers
 ├── /dashboard            # React/Leaflet Admin Panel
 └── /database             # SQL migration files & PostGIS setup
+    ├── schema.sql        # Full DB schema (tables, indexes, constraints)
+    └── DATABASE.md       # Connection details & schema documentation
 
 
 Since **Milestone 1** (the database) is the foundation, **Milestone 2** is the engine. This is where we build the **Flutter Background Service**.
