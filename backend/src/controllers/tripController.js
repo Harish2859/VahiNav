@@ -14,6 +14,7 @@
 'use strict';
 
 const { z } = require('zod');
+const { SyncRequestSchema } = require('../validators/breadcrumbSchema');
 const {
   insertBreadcrumb,
   updateTripPath,
@@ -24,26 +25,13 @@ const { sendNudgeToUser } = require('../services/fcmService');
 const { getFcmToken } = require('../utils/userUtils');
 
 // ---------------------------------------------------------------------------
-// Zod schema — validates the body sent by the Flutter app
+// Additional Zod schemas specific to this controller
 // ---------------------------------------------------------------------------
 
-/** A single GPS reading from the device */
-const BreadcrumbSchema = z.object({
-  /** Longitude — PostGIS uses (lon, lat) order */
-  longitude: z.number().min(-180).max(180),
-  /** Latitude */
-  latitude: z.number().min(-90).max(90),
-  /** Speed in metres per second (nullable — some devices omit it) */
-  speed: z.number().nullable().optional(),
-  /** ISO-8601 UTC timestamp recorded by the device */
-  timestamp: z.string().datetime(),
-});
-
-/** Full sync request body */
-const SyncRequestSchema = z.object({
+/** Schema for POST /api/v1/trips/complete */
+const CompleteTripSchema = z.object({
   userId: z.number().int().positive(),
   tripId: z.number().int().positive(),
-  breadcrumbs: z.array(BreadcrumbSchema).min(1),
 });
 
 // ---------------------------------------------------------------------------
@@ -163,4 +151,113 @@ async function checkDwellAndNudge(tripId, userId, pool, adminApp) {
   }
 }
 
-module.exports = { syncBreadcrumbs };
+/**
+ * POST /api/v1/trips/complete
+ *
+ * Marks a trip as completed.  Runs a final dwell check and sends an FCM
+ * nudge if the user is still stationary.
+ *
+ * @param {import('express').Request}  req
+ * @param {import('express').Response} res
+ * @param {import('pg').Pool}          pool
+ * @param {import('firebase-admin').app.App} adminApp
+ */
+async function completeTrip(req, res, pool, adminApp) {
+  const parseResult = CompleteTripSchema.safeParse(req.body);
+  if (!parseResult.success) {
+    return res.status(400).json({
+      status: 'error',
+      message: 'Validation failed',
+      errors: parseResult.error.errors,
+    });
+  }
+
+  const { userId, tripId } = parseResult.data;
+
+  // Verify the trip exists and belongs to the authenticated user
+  const { rows: tripRows } = await pool.query(
+    'SELECT id, user_id, status FROM trips WHERE id = $1',
+    [tripId],
+  );
+  if (tripRows.length === 0) {
+    return res.status(404).json({ status: 'error', message: 'Trip not found' });
+  }
+  if (tripRows[0].user_id !== userId) {
+    return res.status(403).json({ status: 'error', message: 'Trip does not belong to user' });
+  }
+  if (tripRows[0].status === 'completed') {
+    return res.status(409).json({ status: 'error', message: 'Trip is already completed' });
+  }
+
+  // Final dwell check → nudge if stationary
+  await checkDwellAndNudge(tripId, userId, pool, adminApp);
+
+  // Mark the trip as completed (checkDwellAndNudge may have already done so)
+  await pool.query(
+    `UPDATE trips SET status = 'completed', end_time = COALESCE(end_time, NOW()), updated_at = NOW() WHERE id = $1`,
+    [tripId],
+  );
+
+  // Return final distance
+  const totalDistance = await calculateTripDistance(pool, tripId);
+
+  return res.status(200).json({
+    status: 'completed',
+    tripId,
+    totalDistanceMetres: totalDistance,
+  });
+}
+
+/**
+ * GET /api/v1/trips/:tripId
+ *
+ * Returns trip metadata plus its breadcrumbs — useful for debugging and
+ * driver review in the Flutter app.
+ *
+ * @param {import('express').Request}  req
+ * @param {import('express').Response} res
+ * @param {import('pg').Pool}          pool
+ */
+async function getTripDetails(req, res, pool) {
+  const tripId = parseInt(req.params.tripId, 10);
+  if (Number.isNaN(tripId) || tripId <= 0) {
+    return res.status(400).json({ status: 'error', message: 'Invalid tripId' });
+  }
+
+  const { rows: tripRows } = await pool.query(
+    `SELECT id, user_id, start_time, end_time, travel_mode, trip_purpose,
+            total_distance, status, created_at, updated_at
+     FROM trips WHERE id = $1`,
+    [tripId],
+  );
+  if (tripRows.length === 0) {
+    return res.status(404).json({ status: 'error', message: 'Trip not found' });
+  }
+
+  const trip = tripRows[0];
+
+  // Restrict access to the trip owner
+  if (req.user && req.user.userId !== trip.user_id) {
+    return res.status(403).json({ status: 'error', message: 'Forbidden' });
+  }
+
+  const { rows: breadcrumbs } = await pool.query(
+    `SELECT id, speed, recorded_at,
+            ST_X(location::geometry) AS longitude,
+            ST_Y(location::geometry) AS latitude
+     FROM breadcrumbs
+     WHERE trip_id = $1
+     ORDER BY recorded_at ASC`,
+    [tripId],
+  );
+
+  return res.status(200).json({
+    status: 'ok',
+    trip: {
+      ...trip,
+      breadcrumbs,
+    },
+  });
+}
+
+module.exports = { syncBreadcrumbs, completeTrip, getTripDetails };
