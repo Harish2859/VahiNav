@@ -16,12 +16,94 @@
 
 ## Migration Instructions
 
-### Prerequisites
+### Option A — Docker (Recommended)
 
-- PostgreSQL 14+ installed
-- PostGIS extension available (`postgresql-postgis` or similar package)
+The easiest way to run the database is with [Docker](https://docs.docker.com/get-docker/) and
+[Docker Compose](https://docs.docker.com/compose/install/).  The `postgis/postgis` image ships
+with PostgreSQL **and** the PostGIS extension pre-installed, so the `CREATE EXTENSION postgis`
+statement in `schema.sql` will always succeed.
 
-### Steps
+1. **Set a strong password** (optional — defaults to `changeme` for local dev):
+
+   ```bash
+   export POSTGRES_PASSWORD=mysecretpassword
+   ```
+
+2. **Start the database** from the repository root:
+
+   ```bash
+   docker compose up -d
+   ```
+
+   On first run Docker will:
+   - Pull `postgis/postgis:16-3.4`
+   - Create the `vahinav_db` database
+   - Automatically apply `database/schema.sql` via the `docker-entrypoint-initdb.d` mechanism
+
+3. **Verify the tables were created:**
+
+   ```bash
+   docker compose exec db psql -U postgres -d vahinav_db -c "\dt"
+   ```
+
+   Expected output:
+   ```
+    Schema |    Name     | Type  |  Owner
+   --------+-------------+-------+----------
+    public | breadcrumbs | table | postgres
+    public | survey_data | table | postgres
+    public | trips       | table | postgres
+    public | users       | table | postgres
+   ```
+
+4. **Verify PostGIS is enabled:**
+
+   ```bash
+   docker compose exec db psql -U postgres -d vahinav_db -c "SELECT PostGIS_Version();"
+   ```
+
+5. **Stop the database** when you are done:
+
+   ```bash
+   docker compose down
+   ```
+
+   Add `-v` to also remove the persistent volume (destroys all data):
+
+   ```bash
+   docker compose down -v
+   ```
+
+---
+
+### Option B — Manual PostgreSQL Install
+
+> ⚠️ PostGIS must be installed **before** running `schema.sql`.  If you skip this step you will
+> get: `ERROR: extension "postgis" is not available`.
+
+#### Ubuntu / Debian
+
+```bash
+sudo apt-get update
+sudo apt-get install -y postgresql postgresql-contrib postgis postgresql-16-postgis-3
+```
+
+> **Note:** The package name `postgresql-16-postgis-3` is specific to PostgreSQL 16.
+> Run `apt-cache search 'postgresql-.*-postgis'` to find the correct package for your
+> installed PostgreSQL version.
+
+#### macOS (Homebrew)
+
+```bash
+brew install postgresql@16 postgis
+```
+
+#### Windows
+
+Use the [EnterpriseDB PostgreSQL installer](https://www.enterprisedb.com/downloads/postgres-postgresql-downloads)
+and tick **PostGIS** in the *Stack Builder* wizard that launches after installation.
+
+#### Apply the schema
 
 1. **Create the database** (if it does not already exist):
 
