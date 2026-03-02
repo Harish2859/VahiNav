@@ -5,7 +5,7 @@
  *  1. Load environment variables from .env
  *  2. Initialise PostgreSQL connection pool
  *  3. Initialise Firebase Admin SDK
- *  4. Configure Express middleware (CORS, JSON body parser)
+ *  4. Configure Express middleware (CORS, body-parser, rate limiting)
  *  5. Register routes (health, trips, nudge, admin)
  *  6. Register global error handler
  *  7. Start listening on PORT
@@ -23,17 +23,21 @@ require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
+const bodyParser = require('body-parser');
 const rateLimit = require('express-rate-limit');
 
 const { pool, testConnection } = require('./config/database');
 const { initializeFirebase } = require('./config/firebase');
 const { authenticate } = require('./middleware/auth');
 const { errorHandler } = require('./middleware/errorHandler');
+const logger = require('./utils/logger');
 
-// Controllers
-const { syncBreadcrumbs } = require('./controllers/tripController');
+// Route factories
+const { createTripRouter } = require('./routes/tripRoutes');
+const { createAdminRouter } = require('./routes/adminRoutes');
+
+// Controllers still used as inline handlers (nudge)
 const { sendNudge } = require('./controllers/nudgeController');
-const { getSpatialData, getModalSplit, getTripChains } = require('./controllers/adminController');
 
 // ---------------------------------------------------------------------------
 // 2. Initialise Firebase Admin SDK
@@ -42,7 +46,7 @@ let adminApp;
 try {
   adminApp = initializeFirebase();
 } catch (err) {
-  console.warn('[Firebase] Initialisation skipped:', err.message);
+  logger.warn('Firebase', 'Initialisation skipped:', err.message);
   adminApp = null; // Graceful degradation — server still starts; nudges will fail
 }
 
@@ -63,8 +67,9 @@ app.use(
   }),
 );
 
-/** Parse JSON request bodies */
-app.use(express.json({ limit: '1mb' }));
+/** Parse JSON and URL-encoded request bodies (body-parser is included per project spec) */
+app.use(bodyParser.json({ limit: '1mb' }));
+app.use(bodyParser.urlencoded({ extended: false }));
 
 // ---------------------------------------------------------------------------
 // Rate limiters
@@ -96,9 +101,12 @@ const syncLimiter = rateLimit({
 
 app.use('/api/v1', apiLimiter);
 
-/** Log every incoming request */
-app.use((req, _res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
+/** Log every incoming request with response time */
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    logger.request(req.method, req.originalUrl, res.statusCode, Date.now() - start);
+  });
   next();
 });
 
@@ -116,18 +124,14 @@ app.get('/health', (_req, res) => {
 });
 
 /**
- * POST /api/v1/trips/sync
- *
- * Flutter background service sends batches of GPS breadcrumbs here.
- * Protected by JWT middleware.
+ * POST /api/v1/trips/sync + POST /api/v1/trips/complete + GET /api/v1/trips/:tripId
  */
-app.post('/api/v1/trips/sync', syncLimiter, authenticate, async (req, res, next) => {
-  try {
-    await syncBreadcrumbs(req, res, pool, adminApp);
-  } catch (err) {
-    next(err);
-  }
-});
+app.use('/api/v1/trips', syncLimiter, createTripRouter(pool, adminApp));
+
+/**
+ * GET /api/v1/admin/spatial-data + modal-split + trip-chains
+ */
+app.use('/api/v1/admin', createAdminRouter(pool));
 
 /**
  * POST /api/v1/nudge/send
@@ -143,48 +147,6 @@ app.post('/api/v1/nudge/send', authenticate, async (req, res, next) => {
   }
 });
 
-/**
- * GET /api/v1/admin/spatial-data
- *
- * Returns a GeoJSON FeatureCollection of completed trip paths for the dashboard.
- * Protected by JWT middleware.
- */
-app.get('/api/v1/admin/spatial-data', authenticate, async (req, res, next) => {
-  try {
-    await getSpatialData(req, res, pool);
-  } catch (err) {
-    next(err);
-  }
-});
-
-/**
- * GET /api/v1/admin/modal-split
- *
- * Returns travel-mode breakdown for pie-chart visualisation.
- * Protected by JWT middleware.
- */
-app.get('/api/v1/admin/modal-split', authenticate, async (req, res, next) => {
-  try {
-    await getModalSplit(req, res, pool);
-  } catch (err) {
-    next(err);
-  }
-});
-
-/**
- * GET /api/v1/admin/trip-chains
- *
- * Returns chronological trip chains per user for the dashboard.
- * Protected by JWT middleware.
- */
-app.get('/api/v1/admin/trip-chains', authenticate, async (req, res, next) => {
-  try {
-    await getTripChains(req, res, pool);
-  } catch (err) {
-    next(err);
-  }
-});
-
 // ---------------------------------------------------------------------------
 // 5. Global error handler — must be registered after all routes
 // ---------------------------------------------------------------------------
@@ -193,11 +155,12 @@ app.use(errorHandler);
 // ---------------------------------------------------------------------------
 // 6. Start server
 // ---------------------------------------------------------------------------
-const PORT = parseInt(process.env.PORT || '8080', 10);
+const PORT = parseInt(process.env.PORT || '8000', 10);
 
 app.listen(PORT, async () => {
-  console.log(`[Server] VahiNav API listening on port ${PORT} (${process.env.NODE_ENV})`);
+  logger.info('Server', `VahiNav API listening on port ${PORT} (${process.env.NODE_ENV})`);
   await testConnection(); // Verify DB connectivity on startup
 });
 
 module.exports = app; // Export for testing
+

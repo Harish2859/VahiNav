@@ -27,7 +27,9 @@ function initializeFirebase() {
     return admin.app();
   }
 
-  const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
+  const serviceAccountPath =
+    process.env.FIREBASE_SERVICE_ACCOUNT_PATH ||
+    process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
 
   let credential;
   if (serviceAccountPath) {
