@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+
+# Environment variables — NEVER commit the real .env
+.env
+
+# Build artifacts
+dist/
+build/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Firebase service account key (contains secrets)
+firebase-service-account.json
+*-service-account.json
+
+# macOS
+.DS_Store
